@@ -10,7 +10,6 @@ description = "Traverse through all voxels in a 3d space from a start position t
 readme = "README.md"
 repository = "https://github.com/ChrisTechs/voxel-traversal"
 license = "MIT"
-license-file = "LICENSE"
 keywords = ["voxel", "traversal"]
 
 [dependencies]
