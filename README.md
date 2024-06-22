@@ -26,4 +26,4 @@ voxel_traversal::voxel_traversal(
 ```
 
 # License
-Licensed under [MIT LICENSE](https://github.com/ChrisTechs/voxel-traversal/LICENSE)
+Licensed under [MIT LICENSE](https://github.com/ChrisTechs/voxel-traversal/blob/master/LICENSE)
