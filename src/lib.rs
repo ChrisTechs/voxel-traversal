@@ -23,7 +23,7 @@
 use glam::{DVec3, IVec3, Vec3};
 
 pub fn voxel_traversal<F>(ray_start: Vec3, ray_end: Vec3, mut visit: F)
-    where F: FnMut(IVec3) -> bool
+    where F: FnMut(IVec3, IVec3) -> bool
 {
     // Current voxel hit by the ray.
     let mut current_voxel: IVec3 = IVec3::new(
@@ -98,38 +98,43 @@ pub fn voxel_traversal<F>(ray_start: Vec3, ray_end: Vec3, mut visit: F)
         f32::MAX
     };
 
-    if visit(current_voxel) {
+    if visit(current_voxel, IVec3::ZERO) {
         return;
     }
 
     // Continue traversal until we reach the last voxel
     while current_voxel != last_voxel {
+
+        let mut normal = IVec3::ZERO;
+
         if t_max_x < t_max_y {
             if t_max_x < t_max_z {
                 current_voxel.x += step_x;
                 t_max_x += t_delta_x;
+                normal.x = -step_x;
             } else {
                 current_voxel.z += step_z;
                 t_max_z += t_delta_z;
+                normal.z = -step_z;
             }
+        } else if t_max_y < t_max_z {
+            current_voxel.y += step_y;
+            t_max_y += t_delta_y;
+            normal.y = -step_y;
         } else {
-            if t_max_y < t_max_z {
-                current_voxel.y += step_y;
-                t_max_y += t_delta_y;
-            } else {
-                current_voxel.z += step_z;
-                t_max_z += t_delta_z;
-            }
+            current_voxel.z += step_z;
+            t_max_z += t_delta_z;
+            normal.z = -step_z;
         }
 
-        if visit(current_voxel) {
+        if visit(current_voxel, normal) {
             return;
         }
     }
 }
 
 pub fn voxel_traversal_f64<F>(ray_start: DVec3, ray_end: DVec3, mut visit: F)
-    where F: FnMut(IVec3) -> bool
+    where F: FnMut(IVec3, IVec3) -> bool
 {
     // Current voxel hit by the ray.
     let mut current_voxel: IVec3 = IVec3::new(
@@ -204,31 +209,36 @@ pub fn voxel_traversal_f64<F>(ray_start: DVec3, ray_end: DVec3, mut visit: F)
         f64::MAX
     };
 
-    if visit(current_voxel) {
+    if visit(current_voxel, IVec3::ZERO) {
         return;
     }
 
     // Continue traversal until we reach the last voxel
     while current_voxel != last_voxel {
+
+        let mut normal = IVec3::ZERO;
+
         if t_max_x < t_max_y {
             if t_max_x < t_max_z {
                 current_voxel.x += step_x;
                 t_max_x += t_delta_x;
+                normal.x = -step_x;
             } else {
                 current_voxel.z += step_z;
                 t_max_z += t_delta_z;
+                normal.z = -step_z;
             }
+        } else if t_max_y < t_max_z {
+            current_voxel.y += step_y;
+            t_max_y += t_delta_y;
+            normal.y = -step_y;
         } else {
-            if t_max_y < t_max_z {
-                current_voxel.y += step_y;
-                t_max_y += t_delta_y;
-            } else {
-                current_voxel.z += step_z;
-                t_max_z += t_delta_z;
-            }
+            current_voxel.z += step_z;
+            t_max_z += t_delta_z;
+            normal.z = -step_z;
         }
 
-        if visit(current_voxel) {
+        if visit(current_voxel, normal) {
             return;
         }
     }
