@@ -1,6 +1,6 @@
 [package]
 name = "voxel-traversal"
-version = "0.1.0"
+version = "0.2.0"
 authors = [
     "Francis Engelmann (Original C Code)",
     "Christian Steenkamp (Port to Rust, Additions)"

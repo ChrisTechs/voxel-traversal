@@ -10,14 +10,14 @@ This crate uses [glam](https://github.com/bitshifter/glam-rs) for linear algebra
 voxel_traversal::voxel_traversal(
     start, // Vec3
     end, // Vec3
-    |pos| { // IVec3
-        // return true to exit
-        if (pos.x == 0) {
-            return true;
-        } else {
+    |pos, normal| { // IVec3, IVec3
+    // return true to exit
+    if (pos.x == 0) {
+        return true;
+    } else {
         // return false to continue traversing
-            return false
-        }
+        return false
+    }
     }
 );
 
