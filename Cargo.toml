@@ -11,6 +11,3 @@ readme = "README.md"
 repository = "https://github.com/ChrisTechs/voxel-traversal"
 license = "MIT"
 keywords = ["voxel", "traversal"]
-
-[dependencies]
-glam = "0.29.0"

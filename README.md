@@ -2,17 +2,16 @@
 This is a rust port of https://github.com/francisengelmann/fast_voxel_traversal.
 
 # Example
-This crate uses [glam](https://github.com/bitshifter/glam-rs) for linear algebra.
 ```rust
 
 // f32
 
 voxel_traversal::voxel_traversal(
-    start, // Vec3
-    end, // Vec3
-    |pos, normal| { // IVec3, IVec3
+    start, // (f32,f32,f32)
+    end, // (f32,f32,f32)
+    |pos, normal| { // (i32,i32,i32), (i32,i32,i32)
     // return true to exit
-    if (pos.x == 0) {
+    if (pos.0 == 0) {
         return true;
     } else {
         // return false to continue traversing
@@ -21,7 +20,7 @@ voxel_traversal::voxel_traversal(
     }
 );
 
-// there is also a DVec3 implementation called voxel_traversal_f64
+// there is also a f64 implementation called voxel_traversal_f64
 
 ```
 
