@@ -1,6 +1,7 @@
 // MIT License
 //
 // Copyright (c) 2019 Francis Engelmann
+// Ported and Expanded by Christian Steenkamp
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -20,224 +21,433 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-pub fn voxel_traversal<F>(ray_start: (f32,f32,f32), ray_end: (f32,f32,f32), mut visit: F)
-    where F: FnMut((i32, i32, i32), (i32, i32, i32)) -> bool
-{
-    // Current voxel hit by the ray.
-    let mut current_voxel = (
-        ray_start.0.floor() as i32,
-        ray_start.1.floor() as i32,
-        ray_start.2.floor() as i32,
-    );
+#![cfg_attr(not(feature = "std"), no_std)]
 
-    // The id of the last voxel hit by the ray.
-    let last_voxel = (
-        ray_end.0.floor() as i32,
-        ray_end.1.floor() as i32,
-        ray_end.2.floor() as i32,
-    );
+use core::mem;
+use num_traits::Float;
 
-    // Compute ray direction.
-    let ray = (ray_end.0 - ray_start.0, ray_end.1 - ray_start.1, ray_end.2 - ray_start.2);
+pub trait IntoPoint<T> {
+    fn into_point(self) -> (T, T, T);
+}
 
-    // Determine step direction for each axis.
-    let step_x = if ray.0 >= 0.0 { 1 } else { -1 };
-    let step_y = if ray.1 >= 0.0 { 1 } else { -1 };
-    let step_z = if ray.2 >= 0.0 { 1 } else { -1 };
-
-    // Calculate initial distances to the next voxel boundary.
-    let next_voxel_boundary_x = if step_x > 0 {
-        (current_voxel.0 + 1) as f32
-    } else {
-        current_voxel.0 as f32
-    };
-    let next_voxel_boundary_y = if step_y > 0 {
-        (current_voxel.1 + 1) as f32
-    } else {
-        current_voxel.1 as f32
-    };
-    let next_voxel_boundary_z = if step_z > 0 {
-        (current_voxel.2 + 1) as f32
-    } else {
-        current_voxel.2 as f32
-    };
-
-    // tMax -- distance to the next intersection with a voxel boundary.
-    let mut t_max_x = if ray.0 != 0.0 {
-        (next_voxel_boundary_x - ray_start.0) / ray.0
-    } else {
-        f32::MAX
-    };
-    let mut t_max_y = if ray.1 != 0.0 {
-        (next_voxel_boundary_y - ray_start.1) / ray.1
-    } else {
-        f32::MAX
-    };
-    let mut t_max_z = if ray.2 != 0.0 {
-        (next_voxel_boundary_z - ray_start.2) / ray.2
-    } else {
-        f32::MAX
-    };
-
-    // tDelta -- how far along the ray we must move to cross a voxel boundary.
-    let t_delta_x = if ray.0 != 0.0 {
-        (1.0 / ray.0).abs()
-    } else {
-        f32::MAX
-    };
-    let t_delta_y = if ray.1 != 0.0 {
-        (1.0 / ray.1).abs()
-    } else {
-        f32::MAX
-    };
-    let t_delta_z = if ray.2 != 0.0 {
-        (1.0 / ray.2).abs()
-    } else {
-        f32::MAX
-    };
-
-    if visit(current_voxel, (0, 0, 0)) {
-        return;
+impl<T> IntoPoint<T> for (T, T, T) {
+    fn into_point(self) -> (T, T, T) {
+        self
     }
+}
 
-    // Continue traversal until we reach the last voxel
-    while current_voxel != last_voxel {
+impl<T: Copy> IntoPoint<T> for [T; 3] {
+    fn into_point(self) -> (T, T, T) {
+        (self[0], self[1], self[2])
+    }
+}
+
+#[cfg(feature = "glam")]
+impl IntoPoint<f32> for glam::Vec3 {
+    fn into_point(self) -> (f32, f32, f32) {
+        (self.x, self.y, self.z)
+    }
+}
+
+#[cfg(feature = "glam")]
+impl IntoPoint<f64> for glam::DVec3 {
+    fn into_point(self) -> (f64, f64, f64) {
+        (self.x, self.y, self.z)
+    }
+}
+
+#[cfg(feature = "nalgebra")]
+impl IntoPoint<f32> for nalgebra::Point3<f32> {
+    fn into_point(self) -> (f32, f32, f32) {
+        (self.x, self.y, self.z)
+    }
+}
+
+#[cfg(feature = "nalgebra")]
+impl IntoPoint<f32> for nalgebra::Vector3<f32> {
+    fn into_point(self) -> (f32, f32, f32) {
+        (self.x, self.y, self.z)
+    }
+}
+
+#[cfg(feature = "nalgebra")]
+impl IntoPoint<f64> for nalgebra::Point3<f64> {
+    fn into_point(self) -> (f64, f64, f64) {
+        (self.x, self.y, self.z)
+    }
+}
+
+#[cfg(feature = "nalgebra")]
+impl IntoPoint<f64> for nalgebra::Vector3<f64> {
+    fn into_point(self) -> (f64, f64, f64) {
+        (self.x, self.y, self.z)
+    }
+}
+
+pub struct VoxelRaycast {
+    current_voxel: (i32, i32, i32),
+    last_voxel: (i32, i32, i32),
+    step: (i32, i32, i32),
+    t_max: (f32, f32, f32),
+    t_delta: (f32, f32, f32),
+    just_started: bool,
+    is_finished: bool,
+}
+
+impl VoxelRaycast {
+    pub fn new(start: impl IntoPoint<f32>, end: impl IntoPoint<f32>) -> Self {
+        let start = start.into_point();
+        let end = end.into_point();
+
+        let current_voxel = (
+            Float::floor(start.0) as i32,
+            Float::floor(start.1) as i32,
+            Float::floor(start.2) as i32,
+        );
+
+        let last_voxel = (
+            Float::floor(end.0) as i32,
+            Float::floor(end.1) as i32,
+            Float::floor(end.2) as i32,
+        );
+
+        let ray = (end.0 - start.0, end.1 - start.1, end.2 - start.2);
+
+        let step = (
+            if ray.0 >= 0.0 { 1 } else { -1 },
+            if ray.1 >= 0.0 { 1 } else { -1 },
+            if ray.2 >= 0.0 { 1 } else { -1 },
+        );
+
+        let next_boundary = (
+            if step.0 > 0 {
+                (current_voxel.0 + 1) as f32
+            } else {
+                current_voxel.0 as f32
+            },
+            if step.1 > 0 {
+                (current_voxel.1 + 1) as f32
+            } else {
+                current_voxel.1 as f32
+            },
+            if step.2 > 0 {
+                (current_voxel.2 + 1) as f32
+            } else {
+                current_voxel.2 as f32
+            },
+        );
+
+        let t_max = (
+            if ray.0 != 0.0 {
+                (next_boundary.0 - start.0) / ray.0
+            } else {
+                f32::MAX
+            },
+            if ray.1 != 0.0 {
+                (next_boundary.1 - start.1) / ray.1
+            } else {
+                f32::MAX
+            },
+            if ray.2 != 0.0 {
+                (next_boundary.2 - start.2) / ray.2
+            } else {
+                f32::MAX
+            },
+        );
+
+        let t_delta = (
+            if ray.0 != 0.0 {
+                Float::abs(1.0 / ray.0)
+            } else {
+                f32::MAX
+            },
+            if ray.1 != 0.0 {
+                Float::abs(1.0 / ray.1)
+            } else {
+                f32::MAX
+            },
+            if ray.2 != 0.0 {
+                Float::abs(1.0 / ray.2)
+            } else {
+                f32::MAX
+            },
+        );
+
+        Self {
+            current_voxel,
+            last_voxel,
+            step,
+            t_max,
+            t_delta,
+            just_started: true,
+            is_finished: false,
+        }
+    }
+}
+
+impl Iterator for VoxelRaycast {
+    // (Position, Normal)
+    type Item = ((i32, i32, i32), (i32, i32, i32));
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.is_finished {
+            return None;
+        }
+
+        if self.just_started {
+            self.just_started = false;
+            if self.current_voxel == self.last_voxel {
+                self.is_finished = true;
+            }
+            return Some((self.current_voxel, (0, 0, 0)));
+        }
 
         let mut normal = (0, 0, 0);
 
-        if t_max_x < t_max_y {
-            if t_max_x < t_max_z {
-                current_voxel.0 += step_x;
-                t_max_x += t_delta_x;
-                normal.0 = -step_x;
+        if self.t_max.0 < self.t_max.1 {
+            if self.t_max.0 < self.t_max.2 {
+                self.current_voxel.0 += self.step.0;
+                self.t_max.0 += self.t_delta.0;
+                normal.0 = -self.step.0;
             } else {
-                current_voxel.2 += step_z;
-                t_max_z += t_delta_z;
-                normal.2 = -step_z;
+                self.current_voxel.2 += self.step.2;
+                self.t_max.2 += self.t_delta.2;
+                normal.2 = -self.step.2;
             }
-        } else if t_max_y < t_max_z {
-            current_voxel.1 += step_y;
-            t_max_y += t_delta_y;
-            normal.1 = -step_y;
+        } else if self.t_max.1 < self.t_max.2 {
+            self.current_voxel.1 += self.step.1;
+            self.t_max.1 += self.t_delta.1;
+            normal.1 = -self.step.1;
         } else {
-            current_voxel.2 += step_z;
-            t_max_z += t_delta_z;
-            normal.2 = -step_z;
+            self.current_voxel.2 += self.step.2;
+            self.t_max.2 += self.t_delta.2;
+            normal.2 = -self.step.2;
         }
 
-        if visit(current_voxel, normal) {
-            return;
+        if self.current_voxel == self.last_voxel {
+            self.is_finished = true;
+        }
+
+        Some((self.current_voxel, normal))
+    }
+}
+
+pub struct VoxelRaycastF64 {
+    current_voxel: (i32, i32, i32),
+    last_voxel: (i32, i32, i32),
+    step: (i32, i32, i32),
+    t_max: (f64, f64, f64),
+    t_delta: (f64, f64, f64),
+    just_started: bool,
+    is_finished: bool,
+}
+
+impl VoxelRaycastF64 {
+    pub fn new(start: impl IntoPoint<f64>, end: impl IntoPoint<f64>) -> Self {
+        let start = start.into_point();
+        let end = end.into_point();
+
+        let current_voxel = (
+            Float::floor(start.0) as i32,
+            Float::floor(start.1) as i32,
+            Float::floor(start.2) as i32,
+        );
+
+        let last_voxel = (
+            Float::floor(end.0) as i32,
+            Float::floor(end.1) as i32,
+            Float::floor(end.2) as i32,
+        );
+
+        let ray = (end.0 - start.0, end.1 - start.1, end.2 - start.2);
+
+        let step = (
+            if ray.0 >= 0.0 { 1 } else { -1 },
+            if ray.1 >= 0.0 { 1 } else { -1 },
+            if ray.2 >= 0.0 { 1 } else { -1 },
+        );
+
+        let next_boundary = (
+            if step.0 > 0 {
+                (current_voxel.0 + 1) as f64
+            } else {
+                current_voxel.0 as f64
+            },
+            if step.1 > 0 {
+                (current_voxel.1 + 1) as f64
+            } else {
+                current_voxel.1 as f64
+            },
+            if step.2 > 0 {
+                (current_voxel.2 + 1) as f64
+            } else {
+                current_voxel.2 as f64
+            },
+        );
+
+        let t_max = (
+            if ray.0 != 0.0 {
+                (next_boundary.0 - start.0) / ray.0
+            } else {
+                f64::MAX
+            },
+            if ray.1 != 0.0 {
+                (next_boundary.1 - start.1) / ray.1
+            } else {
+                f64::MAX
+            },
+            if ray.2 != 0.0 {
+                (next_boundary.2 - start.2) / ray.2
+            } else {
+                f64::MAX
+            },
+        );
+
+        let t_delta = (
+            if ray.0 != 0.0 {
+                Float::abs(1.0 / ray.0)
+            } else {
+                f64::MAX
+            },
+            if ray.1 != 0.0 {
+                Float::abs(1.0 / ray.1)
+            } else {
+                f64::MAX
+            },
+            if ray.2 != 0.0 {
+                Float::abs(1.0 / ray.2)
+            } else {
+                f64::MAX
+            },
+        );
+
+        Self {
+            current_voxel,
+            last_voxel,
+            step,
+            t_max,
+            t_delta,
+            just_started: true,
+            is_finished: false,
+        }
+    }
+}
+
+impl Iterator for VoxelRaycastF64 {
+    // (Position, Normal)
+    type Item = ((i32, i32, i32), (i32, i32, i32));
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.is_finished {
+            return None;
+        }
+
+        if self.just_started {
+            self.just_started = false;
+            if self.current_voxel == self.last_voxel {
+                self.is_finished = true;
+            }
+            return Some((self.current_voxel, (0, 0, 0)));
+        }
+
+        let mut normal = (0, 0, 0);
+
+        if self.t_max.0 < self.t_max.1 {
+            if self.t_max.0 < self.t_max.2 {
+                self.current_voxel.0 += self.step.0;
+                self.t_max.0 += self.t_delta.0;
+                normal.0 = -self.step.0;
+            } else {
+                self.current_voxel.2 += self.step.2;
+                self.t_max.2 += self.t_delta.2;
+                normal.2 = -self.step.2;
+            }
+        } else if self.t_max.1 < self.t_max.2 {
+            self.current_voxel.1 += self.step.1;
+            self.t_max.1 += self.t_delta.1;
+            normal.1 = -self.step.1;
+        } else {
+            self.current_voxel.2 += self.step.2;
+            self.t_max.2 += self.t_delta.2;
+            normal.2 = -self.step.2;
+        }
+
+        if self.current_voxel == self.last_voxel {
+            self.is_finished = true;
+        }
+
+        Some((self.current_voxel, normal))
+    }
+}
+
+pub fn voxel_traversal<F>(ray_start: (f32, f32, f32), ray_end: (f32, f32, f32), mut visit: F)
+where
+    F: FnMut((i32, i32, i32), (i32, i32, i32)) -> bool,
+{
+    for (pos, normal) in VoxelRaycast::new(ray_start, ray_end) {
+        if visit(pos, normal) {
+            break;
         }
     }
 }
 
 pub fn voxel_traversal_f64<F>(ray_start: (f64, f64, f64), ray_end: (f64, f64, f64), mut visit: F)
-    where F: FnMut((i32, i32, i32), (i32, i32, i32)) -> bool
+where
+    F: FnMut((i32, i32, i32), (i32, i32, i32)) -> bool,
 {
-    // Current voxel hit by the ray.
-    let mut current_voxel = (
-        ray_start.0.floor() as i32,
-        ray_start.1.floor() as i32,
-        ray_start.2.floor() as i32,
-    );
-
-    // The id of the last voxel hit by the ray.
-    let last_voxel = (
-        ray_end.0.floor() as i32,
-        ray_end.1.floor() as i32,
-        ray_end.2.floor() as i32,
-    );
-
-    // Compute ray direction.
-    let ray = (ray_end.0 - ray_start.0, ray_end.1 - ray_start.1, ray_end.2 - ray_start.2);
-
-    // Determine step direction for each axis.
-    let step_x = if ray.0 >= 0.0 { 1 } else { -1 };
-    let step_y = if ray.1 >= 0.0 { 1 } else { -1 };
-    let step_z = if ray.2 >= 0.0 { 1 } else { -1 };
-
-    // Calculate initial distances to the next voxel boundary.
-    let next_voxel_boundary_x = if step_x > 0 {
-        (current_voxel.0 + 1) as f64
-    } else {
-        current_voxel.0 as f64
-    };
-    let next_voxel_boundary_y = if step_y > 0 {
-        (current_voxel.1 + 1) as f64
-    } else {
-        current_voxel.1 as f64
-    };
-    let next_voxel_boundary_z = if step_z > 0 {
-        (current_voxel.2 + 1) as f64
-    } else {
-        current_voxel.2 as f64
-    };
-
-    // tMax -- distance to the next intersection with a voxel boundary.
-    let mut t_max_x = if ray.0 != 0.0 {
-        (next_voxel_boundary_x - ray_start.0) / ray.0
-    } else {
-        f64::MAX
-    };
-    let mut t_max_y = if ray.1 != 0.0 {
-        (next_voxel_boundary_y - ray_start.1) / ray.1
-    } else {
-        f64::MAX
-    };
-    let mut t_max_z = if ray.2 != 0.0 {
-        (next_voxel_boundary_z - ray_start.2) / ray.2
-    } else {
-        f64::MAX
-    };
-
-    // tDelta -- how far along the ray we must move to cross a voxel boundary.
-    let t_delta_x = if ray.0 != 0.0 {
-        (1.0 / ray.0).abs()
-    } else {
-        f64::MAX
-    };
-    let t_delta_y = if ray.1 != 0.0 {
-        (1.0 / ray.1).abs()
-    } else {
-        f64::MAX
-    };
-    let t_delta_z = if ray.2 != 0.0 {
-        (1.0 / ray.2).abs()
-    } else {
-        f64::MAX
-    };
-
-    if visit(current_voxel, (0, 0, 0)) {
-        return;
+    for (pos, normal) in VoxelRaycastF64::new(ray_start, ray_end) {
+        if visit(pos, normal) {
+            break;
+        }
     }
+}
 
-    // Continue traversal until we reach the last voxel
-    while current_voxel != last_voxel {
+pub fn intersect_aabb(
+    ray_start: impl IntoPoint<f32>,
+    ray_dir: impl IntoPoint<f32>,
+    aabb_min: impl IntoPoint<f32>,
+    aabb_max: impl IntoPoint<f32>,
+) -> Option<(f32, f32)> {
+    let start = ray_start.into_point();
+    let dir = ray_dir.into_point();
+    let min = aabb_min.into_point();
+    let max = aabb_max.into_point();
 
-        let mut normal = (0, 0, 0);
+    let mut t_min = f32::NEG_INFINITY;
+    let mut t_max = f32::INFINITY;
 
-        if t_max_x < t_max_y {
-            if t_max_x < t_max_z {
-                current_voxel.0 += step_x;
-                t_max_x += t_delta_x;
-                normal.0 = -step_x;
-            } else {
-                current_voxel.2 += step_z;
-                t_max_z += t_delta_z;
-                normal.2 = -step_z;
+    let axes = [
+        (start.0, dir.0, min.0, max.0),
+        (start.1, dir.1, min.1, max.1),
+        (start.2, dir.2, min.2, max.2),
+    ];
+
+    for &(o, d, min_bound, max_bound) in axes.iter() {
+        if Float::abs(d) < f32::EPSILON {
+            if o < min_bound || o > max_bound {
+                return None;
             }
-        } else if t_max_y < t_max_z {
-            current_voxel.1 += step_y;
-            t_max_y += t_delta_y;
-            normal.1 = -step_y;
         } else {
-            current_voxel.2 += step_z;
-            t_max_z += t_delta_z;
-            normal.2 = -step_z;
-        }
+            let ood = 1.0 / d;
+            let mut t1 = (min_bound - o) * ood;
+            let mut t2 = (max_bound - o) * ood;
 
-        if visit(current_voxel, normal) {
-            return;
+            if t1 > t2 {
+                mem::swap(&mut t1, &mut t2);
+            }
+
+            t_min = t_min.max(t1);
+            t_max = t_max.min(t2);
+
+            if t_min > t_max {
+                return None;
+            }
         }
     }
+
+    if t_max < 0.0 {
+        return None;
+    }
+
+    Some((t_min, t_max))
 }

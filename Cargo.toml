@@ -1,6 +1,6 @@
 [package]
 name = "voxel-traversal"
-version = "0.3.0"
+version = "0.4.0"
 authors = [
     "Francis Engelmann (Original C Code)",
     "Christian Steenkamp (Port to Rust, Additions)"
@@ -10,4 +10,17 @@ description = "Traverse through all voxels in a 3d space from a start position t
 readme = "README.md"
 repository = "https://github.com/ChrisTechs/voxel-traversal"
 license = "MIT"
-keywords = ["voxel", "traversal"]
+keywords = ["voxel", "traversal", "raycast", "dda", "no_std"]
+
+[features]
+default = ["std"]
+std = ["num-traits/std"]
+
+glam = ["dep:glam"]
+nalgebra = ["dep:nalgebra"]
+
+[dependencies]
+num-traits = { version = "0.2.0", default-features = false, features = ["libm"] }
+
+glam = { version = "0.32.0", optional = true }
+nalgebra = { version = "0.34.0", optional = true }
